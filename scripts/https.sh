@@ -44,27 +44,35 @@ else
     echo -e "${GREEN}✓${NC} ローカルCAは既にインストール済みです"
 fi
 
-# lydos.local用の証明書の存在確認
-CERT_FILE="$CERTS_DIR/lydos.local.pem"
-KEY_FILE="$CERTS_DIR/lydos.local-key.pem"
+# local.lydos用の証明書の存在確認
+CERT_FILE="$CERTS_DIR/local.lydos.pem"
+KEY_FILE="$CERTS_DIR/local.lydos-key.pem"
 
 if [ -f "$CERT_FILE" ] && [ -f "$KEY_FILE" ]; then
-    echo -e "${GREEN}✓${NC} lydos.local の証明書は既に存在します"
-    if openssl x509 -checkend 2592000 -noout -in "$CERT_FILE" &> /dev/null; then
-        echo -e "${GREEN}✓${NC} 証明書はまだ有効です"
+    echo -e "${GREEN}✓${NC} local.lydos の証明書は既に存在します"
+    # 証明書にlocal.api.lydosが含まれているか確認
+    if openssl x509 -in "$CERT_FILE" -text -noout | grep -q "local.api.lydos"; then
+        if openssl x509 -checkend 2592000 -noout -in "$CERT_FILE" &> /dev/null; then
+            echo -e "${GREEN}✓${NC} 証明書はまだ有効です"
+        else
+            echo -e "${YELLOW}⚠️  証明書の有効期限が近いか期限切れです。再生成します...${NC}"
+            rm -f "$CERT_FILE" "$KEY_FILE"
+            mkcert -cert-file "$CERT_FILE" -key-file "$KEY_FILE" local.lydos local.api.lydos "*.local.lydos" 127.0.0.1 ::1
+            echo -e "${GREEN}✓${NC} 証明書を再生成しました"
+        fi
     else
-        echo -e "${YELLOW}⚠️  証明書の有効期限が近いか期限切れです。再生成します...${NC}"
+        echo -e "${YELLOW}⚠️  証明書にlocal.api.lydosが含まれていません。再生成します...${NC}"
         rm -f "$CERT_FILE" "$KEY_FILE"
-        mkcert -cert-file "$CERT_FILE" -key-file "$KEY_FILE" lydos.local "*.lydos.local" 127.0.0.1 ::1
+        mkcert -cert-file "$CERT_FILE" -key-file "$KEY_FILE" local.lydos local.api.lydos "*.local.lydos" 127.0.0.1 ::1
         echo -e "${GREEN}✓${NC} 証明書を再生成しました"
     fi
 else
-    echo "lydos.local用の証明書を生成します..."
-    mkcert -cert-file "$CERT_FILE" -key-file "$KEY_FILE" lydos.local "*.lydos.local" 127.0.0.1 ::1
+    echo "local.lydos用の証明書を生成します..."
+    mkcert -cert-file "$CERT_FILE" -key-file "$KEY_FILE" local.lydos local.api.lydos "*.local.lydos" 127.0.0.1 ::1
     echo -e "${GREEN}✓${NC} 証明書を生成しました"
 fi
 
-# localhost用の証明書も生成（開発用に残す）
+# localhost用の証明書も生成（Vite開発サーバー用）
 LOCALHOST_CERT="$CERTS_DIR/localhost.pem"
 LOCALHOST_KEY="$CERTS_DIR/localhost-key.pem"
 
@@ -167,23 +175,48 @@ if [ -f "$MAIN_NGINX_CONF" ]; then
         echo -e "${GREEN}✓${NC} メインのnginx.confを更新しました"
         NGINX_RELOAD_NEEDED=true
     fi
+    
+    # WebSocket用のmapディレクティブを追加
+    if ! grep -q "map \$http_upgrade \$connection_upgrade" "$MAIN_NGINX_CONF" 2>/dev/null; then
+        echo "メインのnginx.confにWebSocket用のmapディレクティブを追加します..."
+        sudo sed -i.bak '/http {/a\
+    # WebSocket用のConnectionヘッダーマッピング\
+    map $http_upgrade $connection_upgrade {\
+        default upgrade;\
+        '"'"''"'"'      close;\
+    }\
+' "$MAIN_NGINX_CONF"
+        echo -e "${GREEN}✓${NC} WebSocket用のmapディレクティブを追加しました"
+        NGINX_RELOAD_NEEDED=true
+    fi
 fi
 
 # /etc/hostsの更新
 echo ""
 echo "📝 /etc/hostsの設定を確認しています..."
-if grep -q "lydos.local" /etc/hosts 2>/dev/null; then
-    echo -e "${GREEN}✓${NC} /etc/hostsに lydos.local は既に設定されています"
-else
-    echo -e "${YELLOW}⚠️  /etc/hostsに lydos.local が設定されていません${NC}"
+
+HOSTS_UPDATED=false
+if ! grep -q "local.lydos" /etc/hosts 2>/dev/null; then
+    echo -e "${YELLOW}⚠️  /etc/hostsに local.lydos が設定されていません${NC}"
     echo "管理者権限で /etc/hosts に追加します（パスワードの入力が必要です）"
     
-    if sudo sh -c "echo '127.0.0.1 lydos.local' >> /etc/hosts" 2>/dev/null; then
-        echo -e "${GREEN}✓${NC} /etc/hosts に lydos.local を追加しました"
+    if sudo sh -c "echo '127.0.0.1 local.lydos local.api.lydos' >> /etc/hosts" 2>/dev/null; then
+        echo -e "${GREEN}✓${NC} /etc/hosts に local.lydos と local.api.lydos を追加しました"
+        HOSTS_UPDATED=true
     else
         echo -e "${YELLOW}⚠️  /etc/hosts の更新に失敗しました${NC}"
         echo "手動で以下を /etc/hosts に追加してください："
-        echo "  127.0.0.1 lydos.local"
+        echo "  127.0.0.1 local.lydos local.api.lydos"
+    fi
+else
+    # local.lydosはあるがlocal.api.lydosがない場合
+    if ! grep -q "local.api.lydos" /etc/hosts 2>/dev/null; then
+        echo "local.api.lydosを追加します..."
+        sudo sed -i.bak 's/127.0.0.1 local.lydos$/127.0.0.1 local.lydos local.api.lydos/' /etc/hosts
+        echo -e "${GREEN}✓${NC} /etc/hosts に local.api.lydos を追加しました"
+        HOSTS_UPDATED=true
+    else
+        echo -e "${GREEN}✓${NC} /etc/hostsに local.lydos と local.api.lydos は既に設定されています"
     fi
 fi
 
@@ -256,9 +289,9 @@ echo "2. フロントエンドを起動（lydos-viewディレクトリで、別�
 echo -e "   ${GREEN}cd ../lydos-view && bun run dev${NC}"
 echo ""
 echo "ブラウザで以下のURLにアクセスしてください："
-echo -e "  フロントエンド: ${GREEN}https://lydos.local/${NC}"
-echo -e "  API: ${GREEN}https://lydos.local/api/${NC}"
-echo -e "  APIドキュメント: ${GREEN}https://lydos.local/api/reference${NC}"
+echo -e "  フロントエンド: ${GREEN}https://local.lydos/${NC}"
+echo -e "  API: ${GREEN}https://local.api.lydos/${NC}"
+echo -e "  APIドキュメント: ${GREEN}https://local.api.lydos/reference${NC}"
 echo ""
 echo "💡 Nginxの管理コマンド："
 echo -e "  起動: ${GREEN}sudo nginx${NC}"

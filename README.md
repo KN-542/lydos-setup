@@ -16,11 +16,11 @@ bash scripts/https.sh
 
 このスクリプトは以下を自動的に実行します：
 - **mkcert**のインストール確認と自動インストール
-- `lydos.local`と`localhost`用のSSL証明書の生成
+- `local.lydos`と`localhost`用のSSL証明書の生成
 - 証明書を`certs/`ディレクトリに保存
 - **Nginx**のインストール確認と自動インストール
 - Nginx設定ファイルの配置
-- `/etc/hosts`に`lydos.local`を自動追加
+- `/etc/hosts`に`local.lydos`と`local.api.lydos`を自動追加
 - Nginxの起動
 
 すべて冪等性を持っているため、何度実行しても安全です。
@@ -57,32 +57,37 @@ bun run dev
 
 Nginxを通じて以下のURLでアクセスできます：
 
-- **フロントエンド**: https://lydos.local/
-- **API**: https://lydos.local/api/
-- **APIドキュメント**: https://lydos.local/api/reference
+- **フロントエンド**: https://local.lydos/
+- **API**: https://local.api.lydos/
+- **APIドキュメント**: https://local.api.lydos/reference
 
 ## アーキテクチャ
 
 ```
-┌─────────────────┐
-│   ブラウザ      │
-└────────┬────────┘
-         │ HTTPS (443)
-         ▼
-┌─────────────────┐
-│  Nginx (Host)   │
-│  lydos.local    │
-└────┬────────┬───┘
-     │        │
-     │ HTTPS  │ HTTP
-     │        └─────────────┐
-     │                      │
-     ▼                      ▼
-┌──────────┐         ┌──────────┐
-│  Vite    │         │  Hono    │
-│  :5173   │         │  :3001   │
-│(フロント)│         │  (API)   │
-└──────────┘         └──────────┘
+┌─────────────────────┐
+│   ブラウザ          │
+└──────┬──────────┬───┘
+       │          │
+       │ HTTPS    │ HTTPS
+       │          │
+       ▼          ▼
+┌─────────────────────┐
+│  Nginx (Host)       │
+│  ┌───────────────┐  │
+│  │ local.lydos   │  │
+│  └───────┬───────┘  │
+│  ┌───────▼─────────┐│
+│  │local.api.lydos  ││
+│  └───────┬─────────┘│
+└──────────┼──────────┘
+     HTTPS │    HTTP
+      │    └──────────┐
+      ▼               ▼
+┌──────────┐    ┌──────────┐
+│  Vite    │    │  Hono    │
+│  :5173   │    │  :3001   │
+│(フロント)│    │  (API)   │
+└──────────┘    └──────────┘
 ```
 
 ## ファイル構成
@@ -92,12 +97,12 @@ lydos-setup/
 ├── docker-compose.yml    # Dockerサービス定義
 ├── nginx.conf           # Nginx設定
 ├── certs/              # SSL証明書（自動生成）
-│   ├── lydos.local.pem
-│   ├── lydos.local-key.pem
+│   ├── local.lydos.pem
+│   ├── local.lydos-key.pem
 │   ├── localhost.pem
 │   └── localhost-key.pem
 └── scripts/
-    ├── https.sh        # SSL証明書生成スクリプト
+    ├── https.sh        # SSL証明書生成・Nginxセットアップスクリプト
     └── bun.sh          # Bunインストールスクリプト
 ```
 
