@@ -44,6 +44,7 @@ docker compose up -d
 | API クライアント | openapi-fetch (型自動生成) |
 | フォーム | React Hook Form |
 | アイコン | lucide-react |
+| E2E テスト | Playwright 1.58 |
 
 ### バックエンド (lydos-api)
 | カテゴリ | 技術 |
